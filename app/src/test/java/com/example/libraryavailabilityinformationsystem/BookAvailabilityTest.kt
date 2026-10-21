@@ -29,7 +29,7 @@ class BookAvailabilityTest {
         val borrowedBook = books.first { it.status == Status.Borrowed }
         assertEquals(0, borrowedBook.copies)
         assertNotNull(borrowedBook.returnDate)
-        assertFalse(borrowedBook.returnDate.isNull_orBlank())
+        assertFalse(borrowedBook.returnDate.isNullOrBlank())
     }
 
     @Test
@@ -70,6 +70,4 @@ class BookAvailabilityTest {
         assertEquals(newReturnDate, books[borrowedIndex].returnDate)
         assertEquals(Status.Borrowed, books[borrowedIndex].status)
     }
-
-    private fun CharSequence?.isNull_orBlank(): Boolean = this == null || this.trim().isEmpty()
 }

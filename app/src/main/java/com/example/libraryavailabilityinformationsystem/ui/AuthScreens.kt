@@ -177,7 +177,7 @@ fun LoginRegisterScreen(
                 onValueChange = { usernameInput = it; errorMessage = null },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Username or Email") },
-                placeholder = { Text("Enter username (e.g., Doe, lib, admin)") },
+                placeholder = { Text("Enter username or email") },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -188,6 +188,7 @@ fun LoginRegisterScreen(
                     focusedLeadingIconColor = Forest,
                     unfocusedLeadingIconColor = InkSoft
                 ),
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
                 leadingIcon = { Icon(Icons.Filled.Person, null) }
             )
             Spacer(Modifier.height(14.dp))
@@ -218,7 +219,7 @@ fun LoginRegisterScreen(
                     }
                 },
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
             )
 
             if (errorMessage != null) {
@@ -262,7 +263,7 @@ fun LoginRegisterScreen(
                             onAuthSuccess(found)
                         }
                     } else {
-                        errorMessage = "Invalid credentials. (Student: 'Doe'/'123', Staff: 'lib'/'123', Admin: 'admin'/'admin')"
+                        errorMessage = "Invalid credentials"
                     }
                 },
                 enabled = usernameInput.isNotBlank() && passwordInput.isNotBlank(),
