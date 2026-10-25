@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.libraryavailabilityinformationsystem.data.LaisRepository
 import com.example.libraryavailabilityinformationsystem.models.*
 
 @Composable
@@ -305,14 +306,26 @@ fun HomeScreen(
             }
         } else {
             items(filtered, key = { it.id }) { book ->
-                BookRow(book, book.id in savedIds, { onToggleSaved(book.id) }, { onBookClick(book) })
+                BookRow(
+                    book = book,
+                    isSaved = book.id in savedIds,
+                    showStatus = (mode == HomeMode.Availability),
+                    onSave = { onToggleSaved(book.id) },
+                    onOpen = { onBookClick(book) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun BookRow(book: Book, isSaved: Boolean, onSave: () -> Unit, onOpen: () -> Unit) {
+fun BookRow(
+    book: Book,
+    isSaved: Boolean,
+    showStatus: Boolean = false,
+    onSave: () -> Unit,
+    onOpen: () -> Unit
+) {
     Column(Modifier.padding(horizontal = 20.dp)) {
         Row(
             Modifier
@@ -332,7 +345,11 @@ fun BookRow(book: Book, isSaved: Boolean, onSave: () -> Unit, onOpen: () -> Unit
             }
             Column(Modifier.weight(1f).heightIn(min = 110.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusLabel(book.status, Modifier.weight(1f))
+                    if (showStatus) {
+                        StatusLabel(book.status, Modifier.weight(1f))
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
                     IconButton(onSave, Modifier.size(32.dp)) {
                         Icon(
                             if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
@@ -361,7 +378,9 @@ fun BookRow(book: Book, isSaved: Boolean, onSave: () -> Unit, onOpen: () -> Unit
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                BookNote(book)
+                if (showStatus) {
+                    BookNote(book)
+                }
             }
         }
         HorizontalDivider(color = Line)
@@ -373,6 +392,7 @@ fun DetailScreen(
     book: Book,
     saved: Boolean,
     alert: Boolean,
+    showStatusAndReturnDate: Boolean = false,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
     onToggleAlert: () -> Unit
@@ -432,51 +452,53 @@ fun DetailScreen(
                 )
                 Text("${book.author} · Year ${book.year}", color = InkSoft, fontSize = 13.sp)
 
-                val (bg, fg, icon, head, sub) = when (book.status) {
-                    Status.Available -> Card5(MintLight, Forest, Icons.Filled.Check, "Available now", "${book.copies} of ${book.total} copies available")
-                    Status.Borrowed -> Card5(Color(0xFFFAEEE9), Color(0xFF92503F), Icons.Filled.Schedule, "Currently borrowed", "Expected back ${book.returnDate ?: "Soon"}")
-                    Status.Unavailable -> Card5(Color(0xFFEDF1F5), Color(0xFF566676), Icons.Filled.Close, "Not currently available", "This title is not currently held by the school")
-                }
-
-                Row(
-                    Modifier
-                        .padding(top = 14.dp)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(bg)
-                        .padding(13.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(11.dp)
-                ) {
-                    Box(
-                        Modifier
-                            .size(37.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = .75f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(icon, null, tint = fg)
+                if (showStatusAndReturnDate) {
+                    val (bg, fg, icon, head, sub) = when (book.status) {
+                        Status.Available -> Card5(MintLight, Forest, Icons.Filled.Check, "Available now", "${book.copies} of ${book.total} copies available")
+                        Status.Borrowed -> Card5(Color(0xFFFAEEE9), Color(0xFF92503F), Icons.Filled.Schedule, "Currently borrowed", "Expected back ${book.returnDate ?: "Soon"}")
+                        Status.Unavailable -> Card5(Color(0xFFEDF1F5), Color(0xFF566676), Icons.Filled.Close, "Not currently available", "This title is not currently held by the school")
                     }
-                    Column {
-                        Text(head, color = fg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text(sub, color = fg, fontSize = 12.sp)
-                    }
-                }
 
-                if (book.status == Status.Borrowed) {
-                    HorizontalDivider(Modifier.padding(top = 16.dp), color = Line)
                     Row(
-                        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        Modifier
+                            .padding(top = 14.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(bg)
+                            .padding(13.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(11.dp)
                     ) {
-                        Icon(Icons.Filled.CalendarMonth, null, tint = InkSoft)
+                        Box(
+                            Modifier
+                                .size(37.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = .75f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(icon, null, tint = fg)
+                        }
                         Column {
-                            Text("EXPECTED RETURN DATE & TIME", color = InkSoft, fontSize = 10.sp, letterSpacing = .6.sp)
-                            Text(book.returnDate ?: "TBD", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Coral)
+                            Text(head, color = fg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(sub, color = fg, fontSize = 12.sp)
                         }
                     }
-                    HorizontalDivider(color = Line)
+
+                    if (book.status == Status.Borrowed) {
+                        HorizontalDivider(Modifier.padding(top = 16.dp), color = Line)
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(Icons.Filled.CalendarMonth, null, tint = InkSoft)
+                            Column {
+                                Text("EXPECTED RETURN DATE", color = InkSoft, fontSize = 10.sp, letterSpacing = .6.sp)
+                                Text(book.returnDate ?: "TBD", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Coral)
+                            }
+                        }
+                        HorizontalDivider(color = Line)
+                    }
                 }
 
                 if (reservedNotice) {
@@ -496,7 +518,7 @@ fun DetailScreen(
             }
         }
 
-        if (book.status != Status.Available) {
+        if (showStatusAndReturnDate && book.status != Status.Available) {
             HorizontalDivider(color = Line)
 
             Surface(
@@ -513,8 +535,14 @@ fun DetailScreen(
                 ) {
                     Button(
                         onClick = {
-                            onToggleAlert()
-                            reservedNotice = true
+                            LaisRepository.requestBookNotification(
+                                studentUid = "student_${System.currentTimeMillis() % 1000}",
+                                bookId = book.id,
+                                bookTitle = book.title
+                            ) { _, _ ->
+                                onToggleAlert()
+                                reservedNotice = true
+                            }
                         },
                         modifier = Modifier.fillMaxWidth().height(47.dp),
                         shape = RoundedCornerShape(11.dp),
@@ -855,6 +883,7 @@ fun StudentAccountScreen(
                         department = deptInput,
                         password = passInput
                     )
+                    LaisRepository.saveUserToFirestore(updated)
                     onUpdateUser(updated)
                     isEditing = false
                     successMsg = true

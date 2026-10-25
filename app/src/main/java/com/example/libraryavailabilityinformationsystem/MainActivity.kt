@@ -39,8 +39,20 @@ fun LaisApp() {
     val backupsList = remember { mutableStateListOf<BackupRecord>().apply { addAll(LaisRepository.initialBackups) } }
     val historyList = remember { mutableStateListOf<BorrowHistoryItem>().apply { addAll(LaisRepository.initialBorrowHistory) } }
 
+    // Real-time Firestore Sync
+    LaunchedEffect(Unit) {
+        LaisRepository.observeBooksFromFirestore { updatedBooks ->
+            booksList.clear()
+            booksList.addAll(updatedBooks)
+        }
+        LaisRepository.observeUsersFromFirestore { updatedUsers ->
+            usersList.clear()
+            usersList.addAll(updatedUsers)
+        }
+    }
+
     var flow by rememberSaveable { mutableStateOf(Flow.Splash) }
-    var currentUser by remember { mutableStateOf(usersList.first()) }
+    var currentUser by remember { mutableStateOf(usersList.firstOrNull() ?: LaisRepository.initialUsers.first()) }
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var homeMode by rememberSaveable { mutableStateOf(HomeMode.Smart) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -110,6 +122,7 @@ fun LaisApp() {
                 },
                 onRegisterUser = { newUser ->
                     usersList.add(newUser)
+                    LaisRepository.saveUserToFirestore(newUser)
                     logsList.add(
                         0,
                         SystemLog(
@@ -133,6 +146,7 @@ fun LaisApp() {
                 book = selectedBook,
                 saved = selectedBook.id in savedIds,
                 alert = selectedBook.id in alertIds,
+                showStatusAndReturnDate = (tab == Tab.Returns || homeMode == HomeMode.Availability),
                 onBack = { selectedBookId = null },
                 onToggleSaved = { toggleInList(savedIds, selectedBook.id) },
                 onToggleAlert = { toggleInList(alertIds, selectedBook.id) }
@@ -144,7 +158,6 @@ fun LaisApp() {
                     onBack = { flow = Flow.Welcome },
                     onOpenAccount = { tab = Tab.Account },
                     onSwitchRole = {
-                        // Switch role cycle for quick preview/testing
                         val nextRole = when (currentUser.role) {
                             UserRole.Student -> UserRole.Librarian
                             UserRole.Librarian -> UserRole.Admin
@@ -227,6 +240,7 @@ fun LaisApp() {
                                         currentUser = updated
                                         val idx = usersList.indexOfFirst { it.id == updated.id }
                                         if (idx != -1) usersList[idx] = updated
+                                        LaisRepository.saveUserToFirestore(updated)
                                     },
                                     onSignOut = { flow = Flow.Login }
                                 )
@@ -259,8 +273,9 @@ fun LaisApp() {
                                     onToggleOutdated = { bookId ->
                                         val idx = booksList.indexOfFirst { it.id == bookId }
                                         if (idx != -1) {
-                                            val b = booksList[idx]
-                                            booksList[idx] = b.copy(isOutdated = !b.isOutdated)
+                                            val b = booksList[idx].copy(isOutdated = !booksList[idx].isOutdated)
+                                            booksList[idx] = b
+                                            LaisRepository.saveBookToFirestore(b)
                                         }
                                     }
                                 )
@@ -275,18 +290,22 @@ fun LaisApp() {
                                     onUpdateReturnDate = { bookId, newDate ->
                                         val idx = booksList.indexOfFirst { it.id == bookId }
                                         if (idx != -1) {
-                                            booksList[idx] = booksList[idx].copy(returnDate = newDate, status = Status.Borrowed)
+                                            val updated = booksList[idx].copy(returnDate = newDate, status = Status.Borrowed)
+                                            booksList[idx] = updated
+                                            LaisRepository.saveBookToFirestore(updated)
                                         }
                                     },
                                     onMarkReturned = { bookId ->
                                         val idx = booksList.indexOfFirst { it.id == bookId }
                                         if (idx != -1) {
                                             val b = booksList[idx]
-                                            booksList[idx] = b.copy(
+                                            val updated = b.copy(
                                                 status = Status.Available,
                                                 copies = (b.copies + 1).coerceAtMost(b.total),
                                                 returnDate = null
                                             )
+                                            booksList[idx] = updated
+                                            LaisRepository.saveBookToFirestore(updated)
                                         }
                                     }
                                 )
@@ -297,6 +316,7 @@ fun LaisApp() {
                                         currentUser = updated
                                         val idx = usersList.indexOfFirst { it.id == updated.id }
                                         if (idx != -1) usersList[idx] = updated
+                                        LaisRepository.saveUserToFirestore(updated)
                                     },
                                     onSignOut = { flow = Flow.Login }
                                 )
@@ -321,16 +341,21 @@ fun LaisApp() {
 
                                 Tab.Users -> AdminUserMgmtScreen(
                                     usersList = usersList,
-                                    onAddUser = { newUser -> usersList.add(newUser) },
+                                    onAddUser = { newUser ->
+                                        usersList.add(newUser)
+                                        LaisRepository.saveUserToFirestore(newUser)
+                                    },
                                     onToggleActive = { userId ->
                                         val idx = usersList.indexOfFirst { it.id == userId }
                                         if (idx != -1) {
-                                            val u = usersList[idx]
-                                            usersList[idx] = u.copy(isActive = !u.isActive)
+                                            val u = usersList[idx].copy(isActive = !usersList[idx].isActive)
+                                            usersList[idx] = u
+                                            LaisRepository.saveUserToFirestore(u)
                                         }
                                     },
                                     onDeleteUser = { userId ->
                                         usersList.removeAll { it.id == userId }
+                                        LaisRepository.deleteUserFromFirestore(userId)
                                     }
                                 )
 
@@ -371,6 +396,7 @@ fun LaisApp() {
                                         currentUser = updated
                                         val idx = usersList.indexOfFirst { it.id == updated.id }
                                         if (idx != -1) usersList[idx] = updated
+                                        LaisRepository.saveUserToFirestore(updated)
                                     },
                                     onSignOut = { flow = Flow.Login }
                                 )
@@ -401,6 +427,7 @@ fun LaisApp() {
                         onSaveBook = { newBook ->
                             val created = newBook.copy(id = (booksList.maxOfOrNull { it.id } ?: 0) + 1)
                             booksList.add(created)
+                            LaisRepository.saveBookToFirestore(created)
                             showAddBookModal = false
                         }
                     )
@@ -414,6 +441,7 @@ fun LaisApp() {
                             val idx = booksList.indexOfFirst { it.id == updatedBook.id }
                             if (idx != -1) {
                                 booksList[idx] = updatedBook
+                                LaisRepository.saveBookToFirestore(updatedBook)
                             }
                             editingBook = null
                         }

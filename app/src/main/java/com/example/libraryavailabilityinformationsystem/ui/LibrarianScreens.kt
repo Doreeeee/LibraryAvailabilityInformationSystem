@@ -1,5 +1,6 @@
 package com.example.libraryavailabilityinformationsystem.ui
 
+import android.app.DatePickerDialog
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,14 +14,17 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.libraryavailabilityinformationsystem.models.*
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 @Composable
 fun LibrarianCatalogScreen(
@@ -54,14 +58,6 @@ fun LibrarianCatalogScreen(
             ) {
                 Column {
                     Text("Manage Book Catalog", fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp)
-                }
-                Button(
-                    onClick = onAddBookClick,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Forest)
-                ) {
-                    Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
-                    Text(" Add Book", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -121,7 +117,6 @@ fun LibrarianCatalogScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text("${book.author} (${book.year})", color = InkSoft, fontSize = 12.sp)
-                            Text("Location: ${book.location} · Shelf: ${book.shelf}", color = Forest, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -174,16 +169,33 @@ fun AddEditBookDialog(
     onDismiss: () -> Unit,
     onSaveBook: (Book) -> Unit
 ) {
+    val context = LocalContext.current
     var title by rememberSaveable { mutableStateOf(bookToEdit?.title ?: "") }
     var author by rememberSaveable { mutableStateOf(bookToEdit?.author ?: "") }
-    var yearStr by rememberSaveable { mutableStateOf((bookToEdit?.year ?: 2024).toString()) }
+    var yearStr by rememberSaveable { mutableStateOf((bookToEdit?.year ?: Calendar.getInstance().get(Calendar.YEAR)).toString()) }
     var category by rememberSaveable { mutableStateOf(bookToEdit?.category ?: "Computer Science") }
     var totalCopiesStr by rememberSaveable { mutableStateOf((bookToEdit?.total ?: 3).toString()) }
     var availableCopiesStr by rememberSaveable { mutableStateOf((bookToEdit?.copies ?: 3).toString()) }
-    var location by rememberSaveable { mutableStateOf(bookToEdit?.location ?: "Main Library - Floor 2") }
-    var shelf by rememberSaveable { mutableStateOf(bookToEdit?.shelf ?: "CS-101") }
     var status by rememberSaveable { mutableStateOf(bookToEdit?.status ?: Status.Available) }
     var returnDate by rememberSaveable { mutableStateOf(bookToEdit?.returnDate ?: "") }
+
+    val openDatePicker = {
+        val cal = Calendar.getInstance()
+        val picker = DatePickerDialog(
+            context,
+            { _, y, m, d ->
+                val selectedCal = Calendar.getInstance()
+                selectedCal.set(y, m, d)
+                val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+                returnDate = sdf.format(selectedCal.time)
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        )
+        picker.datePicker.minDate = System.currentTimeMillis()
+        picker.show()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -246,20 +258,6 @@ fun AddEditBookDialog(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                OutlinedTextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    label = { Text("Library Location") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = shelf,
-                    onValueChange = { shelf = it },
-                    label = { Text("Shelf Number") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
 
                 Text("STATUS & RETURN DATE", color = InkSoft, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -276,10 +274,16 @@ fun AddEditBookDialog(
                     OutlinedTextField(
                         value = returnDate,
                         onValueChange = { returnDate = it },
-                        label = { Text("Expected Return Date & Time") },
-                        placeholder = { Text("e.g. 28 May 2025, 4:00 PM") },
+                        label = { Text("Expected Return Date") },
+                        placeholder = { Text("Tap calendar to select date") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth().clickable { openDatePicker() },
+                        trailingIcon = {
+                            IconButton(onClick = openDatePicker) {
+                                Icon(Icons.Filled.CalendarMonth, "Select Date")
+                            }
+                        }
                     )
                 }
             }
@@ -289,7 +293,7 @@ fun AddEditBookDialog(
                 onClick = {
                     val tot = totalCopiesStr.toIntOrNull() ?: 1
                     val avail = availableCopiesStr.toIntOrNull() ?: 0
-                    val yr = yearStr.toIntOrNull() ?: 2024
+                    val yr = yearStr.toIntOrNull() ?: Calendar.getInstance().get(Calendar.YEAR)
                     val updatedBook = Book(
                         id = bookToEdit?.id ?: 0,
                         title = title.ifBlank { "Untitled Book" },
@@ -299,9 +303,13 @@ fun AddEditBookDialog(
                         status = status,
                         copies = avail,
                         total = tot,
-                        location = location.ifBlank { "Main Library" },
-                        shelf = shelf.ifBlank { "General Shelf" },
-                        returnDate = if (status == Status.Borrowed) returnDate.ifBlank { "Soon" } else null,
+                        location = "",
+                        shelf = "",
+                        returnDate = if (status == Status.Borrowed) returnDate.ifBlank {
+                            val cal = Calendar.getInstance()
+                            cal.add(Calendar.DAY_OF_MONTH, 7)
+                            SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(cal.time)
+                        } else null,
                         coverColors = bookToEdit?.coverColors ?: listOf(Color(0xFF0E3768), Color(0xFF081B31)),
                         isOutdated = bookToEdit?.isOutdated ?: false
                     )
@@ -324,10 +332,29 @@ fun LibrarianReturnsScreen(
     onUpdateReturnDate: (Int, String) -> Unit,
     onMarkReturned: (Int) -> Unit
 ) {
+    val context = LocalContext.current
     val borrowedList = remember(booksList) { booksList.filter { it.status == Status.Borrowed } }
 
     var selectedBookForDate by remember { mutableStateOf<Book?>(null) }
     var newDateInput by remember { mutableStateOf("") }
+
+    val openDatePicker = {
+        val cal = Calendar.getInstance()
+        val picker = DatePickerDialog(
+            context,
+            { _, y, m, d ->
+                val selectedCal = Calendar.getInstance()
+                selectedCal.set(y, m, d)
+                val sdf = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+                newDateInput = sdf.format(selectedCal.time)
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        )
+        picker.datePicker.minDate = System.currentTimeMillis()
+        picker.show()
+    }
 
     Column(
         Modifier
@@ -337,7 +364,7 @@ fun LibrarianReturnsScreen(
     ) {
         Text("BORROWED BOOKS MANAGEMENT", color = Forest, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
         Text("Expected Return Dates", fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp)
-        Text("Update expected return dates or mark books as returned when students bring them back.", color = InkSoft, fontSize = 12.sp)
+        Text("Update expected return dates when students extend or information changes.", color = InkSoft, fontSize = 12.sp)
 
         Spacer(Modifier.height(16.dp))
 
@@ -346,7 +373,7 @@ fun LibrarianReturnsScreen(
                 colors = CardDefaults.cardColors(containerColor = MintLight),
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp)
             ) {
-                Text("No books are currently borrowed in the system.", modifier = Modifier.padding(20.dp), fontSize = 13.sp)
+                Text("No books are currently marked as borrowed.", modifier = Modifier.padding(20.dp), fontSize = 13.sp)
             }
         } else {
             borrowedList.forEach { book ->
@@ -375,8 +402,8 @@ fun LibrarianReturnsScreen(
                                 },
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(Icons.Filled.EditCalendar, null, Modifier.size(14.dp))
-                                Text(" Edit Return Date", fontSize = 11.sp)
+                                Icon(Icons.Filled.CalendarMonth, null, Modifier.size(14.dp))
+                                Text(" Select Return Date", fontSize = 11.sp)
                             }
                             Spacer(Modifier.width(8.dp))
                             Button(
@@ -385,7 +412,7 @@ fun LibrarianReturnsScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF287452))
                             ) {
                                 Icon(Icons.Filled.Check, null, Modifier.size(14.dp))
-                                Text(" Mark Returned", fontSize = 11.sp)
+                                Text(" Mark Available", fontSize = 11.sp)
                             }
                         }
                     }
@@ -397,18 +424,24 @@ fun LibrarianReturnsScreen(
     if (selectedBookForDate != null) {
         AlertDialog(
             onDismissRequest = { selectedBookForDate = null },
-            title = { Text("Update Expected Return Date") },
+            title = { Text("Select Expected Return Date") },
             text = {
                 Column {
-                    Text("Enter new return date/time for '${selectedBookForDate?.title}':", fontSize = 12.sp, color = InkSoft)
+                    Text("Choose upcoming return date for '${selectedBookForDate?.title}':", fontSize = 12.sp, color = InkSoft)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newDateInput,
                         onValueChange = { newDateInput = it },
                         label = { Text("Expected Return Date") },
-                        placeholder = { Text("e.g. 05 June 2025, 2:00 PM") },
+                        placeholder = { Text("Tap calendar icon to pick date") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth().clickable { openDatePicker() },
+                        trailingIcon = {
+                            IconButton(onClick = openDatePicker) {
+                                Icon(Icons.Filled.CalendarMonth, "Select Date")
+                            }
+                        }
                     )
                 }
             },

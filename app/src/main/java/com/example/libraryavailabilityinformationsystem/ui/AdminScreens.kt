@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.libraryavailabilityinformationsystem.data.LaisRepository
 import com.example.libraryavailabilityinformationsystem.models.*
 
 @Composable
@@ -241,7 +242,16 @@ fun AdminUserMgmtScreen(
                         Text("Created: ${u.createdAt}", fontSize = 10.sp, color = InkSoft)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedButton(
-                                onClick = { onToggleActive(u.id) },
+                                onClick = {
+                                    onToggleActive(u.id)
+                                    LaisRepository.logActivity(
+                                        performedBy = "Administrator",
+                                        performedByRole = "admin",
+                                        action = if (u.isActive) "DEACTIVATE_USER" else "ACTIVATE_USER",
+                                        targetUserId = u.id.toString(),
+                                        description = "Admin ${if (u.isActive) "deactivated" else "activated"} user account '${u.name}'"
+                                    )
+                                },
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                             ) {
@@ -249,7 +259,17 @@ fun AdminUserMgmtScreen(
                             }
 
                             IconButton(
-                                onClick = { onDeleteUser(u.id) },
+                                onClick = {
+                                    onDeleteUser(u.id)
+                                    LaisRepository.deleteUserFromFirestore(u.id)
+                                    LaisRepository.logActivity(
+                                        performedBy = "Administrator",
+                                        performedByRole = "admin",
+                                        action = "DELETE_USER",
+                                        targetUserId = u.id.toString(),
+                                        description = "Admin deleted user account '${u.name}'"
+                                    )
+                                },
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(Icons.Filled.Delete, "Delete user", tint = Coral, modifier = Modifier.size(18.dp))
@@ -307,6 +327,14 @@ fun AdminUserMgmtScreen(
                             studentId = if (newRole == UserRole.Student) "STU-2025-099" else null
                         )
                         onAddUser(newUser)
+                        LaisRepository.saveUserToFirestore(newUser)
+                        LaisRepository.logActivity(
+                            performedBy = "Administrator",
+                            performedByRole = "admin",
+                            action = "CREATE_USER",
+                            targetUserId = newUser.id.toString(),
+                            description = "Admin created account for ${newUser.name} (${newUser.role.label})"
+                        )
                         showAddDialog = false
                     },
                     enabled = newName.isNotBlank() && newUsername.isNotBlank()

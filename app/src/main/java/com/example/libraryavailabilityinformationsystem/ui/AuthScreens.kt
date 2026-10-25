@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.libraryavailabilityinformationsystem.data.LaisRepository
 import com.example.libraryavailabilityinformationsystem.models.*
 
 @Composable
@@ -106,7 +107,7 @@ fun LoginRegisterScreen(
     var isSignUp by rememberSaveable { mutableStateOf(false) }
 
     // Sign In state
-    var usernameInput by rememberSaveable { mutableStateOf("") }
+    var emailInput by rememberSaveable { mutableStateOf("") }
     var passwordInput by rememberSaveable { mutableStateOf("") }
     var showPassword by rememberSaveable { mutableStateOf(false) }
     var rememberMe by rememberSaveable { mutableStateOf(true) }
@@ -115,10 +116,9 @@ fun LoginRegisterScreen(
     // Sign Up state
     var regName by rememberSaveable { mutableStateOf("") }
     var regEmail by rememberSaveable { mutableStateOf("") }
-    var regUsername by rememberSaveable { mutableStateOf("") }
     var regPassword by rememberSaveable { mutableStateOf("") }
+    var regConfirmPassword by rememberSaveable { mutableStateOf("") }
     var regRole by rememberSaveable { mutableStateOf(UserRole.Student) }
-    var regStudentId by rememberSaveable { mutableStateOf("") }
     var regDept by rememberSaveable { mutableStateOf("Computer Science") }
 
     Column(
@@ -173,11 +173,11 @@ fun LoginRegisterScreen(
             Spacer(Modifier.height(24.dp))
 
             OutlinedTextField(
-                value = usernameInput,
-                onValueChange = { usernameInput = it; errorMessage = null },
+                value = emailInput,
+                onValueChange = { emailInput = it; errorMessage = null },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Username or Email") },
-                placeholder = { Text("Enter username or email") },
+                label = { Text("Email") },
+                placeholder = { Text("Enter your email") },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -188,8 +188,8 @@ fun LoginRegisterScreen(
                     focusedLeadingIconColor = Forest,
                     unfocusedLeadingIconColor = InkSoft
                 ),
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                leadingIcon = { Icon(Icons.Filled.Person, null) }
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false),
+                leadingIcon = { Icon(Icons.Filled.Email, null) }
             )
             Spacer(Modifier.height(14.dp))
             OutlinedTextField(
@@ -249,24 +249,16 @@ fun LoginRegisterScreen(
             }
             Spacer(Modifier.height(24.dp))
             Button(
-
                 onClick = {
-                    val found = usersList.find {
-                        (it.username.equals(usernameInput.trim(), ignoreCase = true) ||
-                         it.email.equals(usernameInput.trim(), ignoreCase = true)) &&
-                        it.password == passwordInput.trim()
-                    }
-                    if (found != null) {
-                        if (!found.isActive) {
-                            errorMessage = "Your account has been deactivated by administrator."
+                    LaisRepository.authenticateWithFirebase(emailInput, passwordInput) { user, err ->
+                        if (user != null) {
+                            onAuthSuccess(user)
                         } else {
-                            onAuthSuccess(found)
+                            errorMessage = err ?: "Invalid credentials"
                         }
-                    } else {
-                        errorMessage = "Invalid credentials"
                     }
                 },
-                enabled = usernameInput.isNotBlank() && passwordInput.isNotBlank(),
+                enabled = emailInput.isNotBlank() && passwordInput.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
@@ -326,7 +318,7 @@ fun LoginRegisterScreen(
 
             OutlinedTextField(
                 value = regName,
-                onValueChange = { regName = it },
+                onValueChange = { regName = it; errorMessage = null },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Full Name") },
                 placeholder = { Text("e.g. John Doe") },
@@ -338,45 +330,20 @@ fun LoginRegisterScreen(
 
             OutlinedTextField(
                 value = regEmail,
-                onValueChange = { regEmail = it },
+                onValueChange = { regEmail = it; errorMessage = null },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("University Email") },
-                placeholder = { Text("e.g. j.doe@univ.edu") },
+                label = { Text("Email") },
+                placeholder = { Text("e.g. doe@univ.edu") },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false),
                 leadingIcon = { Icon(Icons.Filled.Email, null) }
             )
             Spacer(Modifier.height(10.dp))
 
             OutlinedTextField(
-                value = regUsername,
-                onValueChange = { regUsername = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Username") },
-                placeholder = { Text("Choose a username") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                leadingIcon = { Icon(Icons.Filled.Person, null) }
-            )
-            Spacer(Modifier.height(10.dp))
-
-            if (regRole == UserRole.Student) {
-                OutlinedTextField(
-                    value = regStudentId,
-                    onValueChange = { regStudentId = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Student ID") },
-                    placeholder = { Text("e.g. STU-2025-0899") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    leadingIcon = { Icon(Icons.Filled.School, null) }
-                )
-                Spacer(Modifier.height(10.dp))
-            }
-
-            OutlinedTextField(
                 value = regPassword,
-                onValueChange = { regPassword = it },
+                onValueChange = { regPassword = it; errorMessage = null },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Password") },
                 placeholder = { Text("Create password") },
@@ -384,26 +351,55 @@ fun LoginRegisterScreen(
                 shape = RoundedCornerShape(14.dp),
                 leadingIcon = { Icon(Icons.Filled.Lock, null) },
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
             )
+            Spacer(Modifier.height(10.dp))
+
+            OutlinedTextField(
+                value = regConfirmPassword,
+                onValueChange = { regConfirmPassword = it; errorMessage = null },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Confirm Password") },
+                placeholder = { Text("Re-enter password") },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                leadingIcon = { Icon(Icons.Filled.Lock, null) },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
+            )
+
+            if (errorMessage != null) {
+                Text(
+                    errorMessage!!,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+            }
 
             Spacer(Modifier.height(20.dp))
             Button(
                 onClick = {
-                    val newUser = UserAccount(
-                        id = (usersList.maxOfOrNull { it.id } ?: 0) + 1,
-                        name = regName.ifBlank { "New User" },
-                        email = regEmail.ifBlank { "${regUsername}@univ.edu" },
-                        username = regUsername.ifBlank { "user${System.currentTimeMillis() % 1000}" },
-                        password = regPassword.ifBlank { "123" },
-                        role = regRole,
-                        studentId = if (regRole == UserRole.Student) regStudentId.ifBlank { "STU-2025-9999" } else null,
-                        department = regDept
-                    )
-                    onRegisterUser(newUser)
-                    onAuthSuccess(newUser)
+                    if (regPassword != regConfirmPassword) {
+                        errorMessage = "Passwords do not match"
+                        return@Button
+                    }
+                    LaisRepository.registerStudentWithFirebase(
+                        name = regName.ifBlank { "New Student" },
+                        email = regEmail.trim(),
+                        password = regPassword.trim(),
+                        role = regRole
+                    ) { registeredUser, err ->
+                        if (registeredUser != null) {
+                            onRegisterUser(registeredUser)
+                            onAuthSuccess(registeredUser)
+                        } else {
+                            errorMessage = err ?: "Registration failed"
+                        }
+                    }
                 },
-                enabled = regName.isNotBlank() && regUsername.isNotBlank() && regPassword.isNotBlank(),
+                enabled = regName.isNotBlank() && regEmail.isNotBlank() && regPassword.isNotBlank() && regConfirmPassword.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
