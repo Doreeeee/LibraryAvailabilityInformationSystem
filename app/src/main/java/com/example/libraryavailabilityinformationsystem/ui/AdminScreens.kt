@@ -38,7 +38,6 @@ fun AdminDashboardScreen(
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 90.dp)
     ) {
         Text("System Overview", fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp)
-        Text("Real-time metrics and system activity monitoring.", color = InkSoft, fontSize = 12.sp)
 
         Spacer(Modifier.height(16.dp))
 
@@ -165,7 +164,6 @@ fun AdminUserMgmtScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("USER MANAGEMENT", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
                     Text("Accounts Control", fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp)
                 }
                 Button(
@@ -357,7 +355,6 @@ fun AdminBookAuditScreen(booksList: List<Book>) {
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 90.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text("SYSTEM CATALOG AUDIT", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
         Text("Books & Statuses Overview", fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp)
         Text("Real-time view of all library book records across campus.", color = InkSoft, fontSize = 12.sp)
 
@@ -401,9 +398,7 @@ fun AdminLogsScreen(logsList: List<SystemLog>) {
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 90.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text("SECURITY & AUDIT TRAIL", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
         Text("System Logs Viewer", fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp)
-        Text("Electronic log records of all system actions and events.", color = InkSoft, fontSize = 12.sp)
 
         Spacer(Modifier.height(14.dp))
 
@@ -462,7 +457,6 @@ fun AdminBackupScreen(
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 90.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text("DATA PROTECTION", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
         Text("Backup & Restore System Data", fontFamily = Serif, fontWeight = FontWeight.Bold, fontSize = 24.sp)
         Text("Create data backups or restore system state after failures.", color = InkSoft, fontSize = 12.sp)
 

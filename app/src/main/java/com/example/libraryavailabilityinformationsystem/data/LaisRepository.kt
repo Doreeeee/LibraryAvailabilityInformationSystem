@@ -24,7 +24,9 @@ object LaisRepository {
         UserAccount(2, "Sarah Jenkins", "lib@univ.edu", "lib", "123", UserRole.Librarian, "LIB-8802", "Library Administration", "+1 (555) 018-9922"),
         UserAccount(3, "David Vance", "admin@univ.edu", "admin", "admin", UserRole.Admin, "ADM-1001", "IT & System Admin", "+1 (555) 017-3344"),
         UserAccount(4, "Emma Watson", "e.watson@univ.edu", "emma", "123", UserRole.Student, "STU-2025-0210", "Electrical Engineering", "+1 (555) 014-5511"),
-        UserAccount(5, "Michael Chen", "m.chen@univ.edu", "mchen", "123", UserRole.Librarian, "LIB-9104", "Library Circulation", "+1 (555) 012-7788")
+        UserAccount(5, "Michael Chen", "m.chen@univ.edu", "mchen", "123", UserRole.Librarian, "LIB-9104", "Library Circulation", "+1 (555) 012-7788"),
+        UserAccount(6, "Librarian 01", "librarian01@univ.edu", "librarian01", "Library123", UserRole.Librarian, "LIB-0001", "Circulation Desk"),
+        UserAccount(7, "Administrator 01", "admin01@univ.edu", "admin01", "Admin123", UserRole.Admin, "ADM-0001", "System Control")
     )
 
     private fun getUpcomingDateString(daysFromNow: Int): String {
@@ -338,9 +340,12 @@ object LaisRepository {
         }
     }
 
+    val registeredUsers = mutableListOf<UserAccount>()
+
     fun authenticateWithFirebase(
         usernameInput: String,
         passwordInput: String,
+        activeUsersList: List<UserAccount> = emptyList(),
         onResult: (UserAccount?, String?) -> Unit
     ) {
         val input = usernameInput.trim()
@@ -349,9 +354,10 @@ object LaisRepository {
         val firestoreDb = db
         val firebaseAuth = auth
 
-        val localMatch = initialUsers.find {
-            (it.username.equals(input, ignoreCase = true) || it.email.equals(input, ignoreCase = true)) &&
-            it.password == pass
+        val allLocalUsers = activeUsersList + registeredUsers + initialUsers
+        val localMatch = allLocalUsers.find { u ->
+            (u.email.equals(input, ignoreCase = true) || u.username.equals(input, ignoreCase = true)) &&
+            (u.password.isEmpty() || u.password == pass)
         }
 
         if (localMatch != null) {
@@ -372,13 +378,13 @@ object LaisRepository {
             return
         }
 
-        if (firestoreDb == null || firebaseAuth == null) {
+        val isEmail = input.contains("@")
+        val authEmail = if (isEmail) input else "$input@univ.edu"
+
+        if (firebaseAuth == null || firestoreDb == null) {
             onResult(null, "Invalid credentials")
             return
         }
-
-        val isEmail = input.contains("@")
-        val authEmail = if (isEmail) input else "$input@univ.edu"
 
         firebaseAuth.signInWithEmailAndPassword(authEmail, pass)
             .addOnSuccessListener { authResult ->
@@ -392,10 +398,40 @@ object LaisRepository {
                             if (!user.isActive) {
                                 onResult(null, "Your account has been deactivated by administrator.")
                             } else {
+                                registeredUsers.add(user)
                                 onResult(user, null)
                             }
                         } else {
-                            onResult(null, "User record not found in Firestore.")
+                            firestoreDb.collection("users")
+                                .whereEqualTo("email", authEmail)
+                                .get()
+                                .addOnSuccessListener { snapshot ->
+                                    val matchedDoc = snapshot?.documents?.firstOrNull()
+                                    if (matchedDoc != null) {
+                                        val u = parseUserFromDoc(matchedDoc)
+                                        if (!u.isActive) {
+                                            onResult(null, "Your account has been deactivated by administrator.")
+                                        } else {
+                                            registeredUsers.add(u)
+                                            onResult(u, null)
+                                        }
+                                    } else {
+                                        val fallbackUser = UserAccount(
+                                            id = uid.hashCode(),
+                                            name = authEmail.substringBefore("@").replaceFirstChar { it.uppercase() },
+                                            email = authEmail,
+                                            username = authEmail.substringBefore("@"),
+                                            password = pass,
+                                            role = UserRole.Student,
+                                            uid = uid
+                                        )
+                                        registeredUsers.add(fallbackUser)
+                                        onResult(fallbackUser, null)
+                                    }
+                                }
+                                .addOnFailureListener {
+                                    onResult(null, "Invalid credentials")
+                                }
                         }
                     }
                     .addOnFailureListener { e ->
@@ -405,7 +441,29 @@ object LaisRepository {
             }
             .addOnFailureListener { e ->
                 Log.e(TAG, "Firebase Auth sign-in failed: ${e.localizedMessage}", e)
-                onResult(null, "Invalid credentials")
+                firestoreDb.collection("users")
+                    .whereEqualTo("email", authEmail)
+                    .get()
+                    .addOnSuccessListener { snapshot ->
+                        val matchedDoc = snapshot?.documents?.find { d ->
+                            val uPass = d.getString("password") ?: ""
+                            uPass.isEmpty() || uPass == pass
+                        }
+                        if (matchedDoc != null) {
+                            val user = parseUserFromDoc(matchedDoc)
+                            if (!user.isActive) {
+                                onResult(null, "Your account has been deactivated by administrator.")
+                            } else {
+                                registeredUsers.add(user)
+                                onResult(user, null)
+                            }
+                        } else {
+                            onResult(null, "Invalid credentials")
+                        }
+                    }
+                    .addOnFailureListener {
+                        onResult(null, "Invalid credentials")
+                    }
             }
     }
 
@@ -436,6 +494,7 @@ object LaisRepository {
 
         // Save profile to Firestore immediately
         saveUserToFirestore(localUser)
+        registeredUsers.add(localUser)
 
         if (firebaseAuth == null || firestoreDb == null) {
             Log.w(TAG, "Firebase services not initialized, registering locally.")
@@ -474,6 +533,7 @@ object LaisRepository {
                     .addOnSuccessListener {
                         Log.d(TAG, "Firestore document users/$uid created successfully!")
                         val registeredUser = localUser.copy(uid = uid)
+                        registeredUsers.add(registeredUser)
                         onResult(registeredUser, null)
                     }
                     .addOnFailureListener { e ->

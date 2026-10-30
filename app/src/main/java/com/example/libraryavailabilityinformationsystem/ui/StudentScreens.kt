@@ -309,7 +309,7 @@ fun HomeScreen(
                 BookRow(
                     book = book,
                     isSaved = book.id in savedIds,
-                    showStatus = (mode == HomeMode.Availability),
+                    showStatus = (mode == HomeMode.Availability || availabilityFilter != "All"),
                     onSave = { onToggleSaved(book.id) },
                     onOpen = { onBookClick(book) }
                 )

@@ -116,6 +116,7 @@ fun LoginRegisterScreen(
     // Sign Up state
     var regName by rememberSaveable { mutableStateOf("") }
     var regEmail by rememberSaveable { mutableStateOf("") }
+    var regUsername by rememberSaveable { mutableStateOf("") }
     var regPassword by rememberSaveable { mutableStateOf("") }
     var regConfirmPassword by rememberSaveable { mutableStateOf("") }
     var regRole by rememberSaveable { mutableStateOf(UserRole.Student) }
@@ -176,8 +177,8 @@ fun LoginRegisterScreen(
                 value = emailInput,
                 onValueChange = { emailInput = it; errorMessage = null },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Email") },
-                placeholder = { Text("Enter your email") },
+                label = { Text("Email or Username") },
+                placeholder = { Text("Enter email or username") },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -250,7 +251,7 @@ fun LoginRegisterScreen(
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = {
-                    LaisRepository.authenticateWithFirebase(emailInput, passwordInput) { user, err ->
+                    LaisRepository.authenticateWithFirebase(emailInput, passwordInput, usersList) { user, err ->
                         if (user != null) {
                             onAuthSuccess(user)
                         } else {
@@ -316,57 +317,84 @@ fun LoginRegisterScreen(
                 }
             }
 
-            OutlinedTextField(
-                value = regName,
-                onValueChange = { regName = it; errorMessage = null },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Full Name") },
-                placeholder = { Text("e.g. John Doe") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                leadingIcon = { Icon(Icons.Filled.Badge, null) }
-            )
-            Spacer(Modifier.height(10.dp))
+            if (regRole == UserRole.Student) {
+                OutlinedTextField(
+                    value = regName,
+                    onValueChange = { regName = it; errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Full Name") },
+                    placeholder = { Text("e.g. John Doe") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    leadingIcon = { Icon(Icons.Filled.Badge, null) }
+                )
+                Spacer(Modifier.height(10.dp))
 
-            OutlinedTextField(
-                value = regEmail,
-                onValueChange = { regEmail = it; errorMessage = null },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Email") },
-                placeholder = { Text("e.g. doe@univ.edu") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false),
-                leadingIcon = { Icon(Icons.Filled.Email, null) }
-            )
-            Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = regEmail,
+                    onValueChange = { regEmail = it; errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Email") },
+                    placeholder = { Text("e.g. doe@univ.edu") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false),
+                    leadingIcon = { Icon(Icons.Filled.Email, null) }
+                )
+                Spacer(Modifier.height(10.dp))
 
-            OutlinedTextField(
-                value = regPassword,
-                onValueChange = { regPassword = it; errorMessage = null },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Password") },
-                placeholder = { Text("Create password") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                leadingIcon = { Icon(Icons.Filled.Lock, null) },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
-            )
-            Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = regPassword,
+                    onValueChange = { regPassword = it; errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Password") },
+                    placeholder = { Text("Create password") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    leadingIcon = { Icon(Icons.Filled.Lock, null) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
+                )
+                Spacer(Modifier.height(10.dp))
 
-            OutlinedTextField(
-                value = regConfirmPassword,
-                onValueChange = { regConfirmPassword = it; errorMessage = null },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Confirm Password") },
-                placeholder = { Text("Re-enter password") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                leadingIcon = { Icon(Icons.Filled.Lock, null) },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
-            )
+                OutlinedTextField(
+                    value = regConfirmPassword,
+                    onValueChange = { regConfirmPassword = it; errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Confirm Password") },
+                    placeholder = { Text("Re-enter password") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    leadingIcon = { Icon(Icons.Filled.Lock, null) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
+                )
+            } else {
+                OutlinedTextField(
+                    value = regUsername,
+                    onValueChange = { regUsername = it; errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Username") },
+                    placeholder = { Text(if (regRole == UserRole.Librarian) "e.g. librarian01" else "e.g. admin01") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    leadingIcon = { Icon(Icons.Filled.Person, null) }
+                )
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = regPassword,
+                    onValueChange = { regPassword = it; errorMessage = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Password") },
+                    placeholder = { Text(if (regRole == UserRole.Librarian) "e.g. Library123" else "e.g. Admin123") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    leadingIcon = { Icon(Icons.Filled.Lock, null) },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
+                )
+            }
 
             if (errorMessage != null) {
                 Text(
@@ -381,25 +409,50 @@ fun LoginRegisterScreen(
             Spacer(Modifier.height(20.dp))
             Button(
                 onClick = {
-                    if (regPassword != regConfirmPassword) {
-                        errorMessage = "Passwords do not match"
-                        return@Button
-                    }
-                    LaisRepository.registerStudentWithFirebase(
-                        name = regName.ifBlank { "New Student" },
-                        email = regEmail.trim(),
-                        password = regPassword.trim(),
-                        role = regRole
-                    ) { registeredUser, err ->
-                        if (registeredUser != null) {
-                            onRegisterUser(registeredUser)
-                            onAuthSuccess(registeredUser)
-                        } else {
-                            errorMessage = err ?: "Registration failed"
+                    if (regRole == UserRole.Student) {
+                        if (regPassword != regConfirmPassword) {
+                            errorMessage = "Passwords do not match"
+                            return@Button
                         }
+                        LaisRepository.registerStudentWithFirebase(
+                            name = regName.ifBlank { "New Student" },
+                            email = regEmail.trim(),
+                            password = regPassword.trim(),
+                            role = regRole
+                        ) { registeredUser, err ->
+                            if (registeredUser != null) {
+                                onRegisterUser(registeredUser)
+                                onAuthSuccess(registeredUser)
+                            } else {
+                                errorMessage = err ?: "Registration failed"
+                            }
+                        }
+                    } else {
+                        val defaultUname = if (regRole == UserRole.Librarian) "librarian01" else "admin01"
+                        val defaultPass = if (regRole == UserRole.Librarian) "Library123" else "Admin123"
+                        val uname = regUsername.ifBlank { defaultUname }
+                        val pass = regPassword.ifBlank { defaultPass }
+                        val email = "${uname.lowercase()}@univ.edu"
+                        val name = if (regRole == UserRole.Librarian) "Librarian Staff ($uname)" else "Administrator ($uname)"
+                        val newUser = UserAccount(
+                            id = Math.abs(email.hashCode()),
+                            name = name,
+                            email = email,
+                            username = uname,
+                            password = pass,
+                            role = regRole
+                        )
+                        LaisRepository.saveUserToFirestore(newUser)
+                        LaisRepository.registeredUsers.add(newUser)
+                        onRegisterUser(newUser)
+                        onAuthSuccess(newUser)
                     }
                 },
-                enabled = regName.isNotBlank() && regEmail.isNotBlank() && regPassword.isNotBlank() && regConfirmPassword.isNotBlank(),
+                enabled = if (regRole == UserRole.Student) {
+                    regName.isNotBlank() && regEmail.isNotBlank() && regPassword.isNotBlank() && regConfirmPassword.isNotBlank()
+                } else {
+                    regUsername.isNotBlank() && regPassword.isNotBlank()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
