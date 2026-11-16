@@ -152,7 +152,9 @@ object LaisRepository {
 
     val categories = listOf("All", "Computer Science", "Software Engineering", "Design", "Economics")
 
-    // ---------- Firebase Sync & Operations ----------
+    val registeredUsers = mutableListOf<UserAccount>()
+    val notificationRequests = mutableListOf<BookNotification>()
+    val activityLogsList = mutableListOf<ActivityLog>()
 
     fun observeBooksFromFirestore(onBooksUpdated: (List<Book>) -> Unit) {
         val firestoreDb = db ?: return onBooksUpdated(initialBooks)
@@ -340,8 +342,6 @@ object LaisRepository {
         }
     }
 
-    val registeredUsers = mutableListOf<UserAccount>()
-
     fun authenticateWithFirebase(
         usernameInput: String,
         passwordInput: String,
@@ -368,18 +368,16 @@ object LaisRepository {
             }
             if (firebaseAuth != null) {
                 try {
-                    val isEmail = input.contains("@")
-                    val authEmail = if (isEmail) input else localMatch.email
+                    val authEmail = if (input.contains("@")) input else localMatch.email
                     firebaseAuth.signInWithEmailAndPassword(authEmail, pass)
                 } catch (e: Exception) {
-                    Log.d(TAG, "Async sign in sync: ${e.message}")
+                    Log.d(TAG, "Auth sync notice: ${e.message}")
                 }
             }
             return
         }
 
-        val isEmail = input.contains("@")
-        val authEmail = if (isEmail) input else "$input@univ.edu"
+        val authEmail = if (input.contains("@")) input else "$input@univ.edu"
 
         if (firebaseAuth == null || firestoreDb == null) {
             onResult(null, "Invalid credentials")
@@ -492,7 +490,7 @@ object LaisRepository {
             uid = generatedUid
         )
 
-        // Save profile to Firestore immediately
+        // Save profile to Firestore and memory list immediately
         saveUserToFirestore(localUser)
         registeredUsers.add(localUser)
 

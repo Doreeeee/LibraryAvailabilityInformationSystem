@@ -146,7 +146,7 @@ fun LaisApp() {
                 book = selectedBook,
                 saved = selectedBook.id in savedIds,
                 alert = selectedBook.id in alertIds,
-                showStatusAndReturnDate = (tab == Tab.Returns || homeMode == HomeMode.Availability),
+                showStatusAndReturnDate = true,
                 onBack = { selectedBookId = null },
                 onToggleSaved = { toggleInList(savedIds, selectedBook.id) },
                 onToggleAlert = { toggleInList(alertIds, selectedBook.id) }

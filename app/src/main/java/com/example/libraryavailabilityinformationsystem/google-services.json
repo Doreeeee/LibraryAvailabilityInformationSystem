@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "425518409319",
+    "project_id": "lais-eca63",
+    "storage_bucket": "lais-eca63.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:425518409319:android:e6dd4f2efb98bb9e4b16c2",
+        "android_client_info": {
+          "package_name": "com.example.libraryavailabilityinformationsystem"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrJNm4F49vptUPMh7_HSzhogyGH_k1AEs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
