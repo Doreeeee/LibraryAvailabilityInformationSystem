@@ -383,3 +383,68 @@ fun Pill(text: String, icon: ImageVector, bg: Color, fg: Color) {
         Text(" $text", color = fg, fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }
+
+@Composable
+fun NotificationBanner(
+    title: String,
+    message: String,
+    isVisible: Boolean,
+    onDismiss: () -> Unit
+) {
+    if (isVisible) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Forest,
+            shadowElevation = 6.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.NotificationsActive,
+                        contentDescription = null,
+                        tint = Acid,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                    Text(
+                        message,
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 11.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Dismiss banner",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}

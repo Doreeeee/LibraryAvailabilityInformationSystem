@@ -16,10 +16,10 @@ import com.example.libraryavailabilityinformationsystem.data.LaisRepository
 import com.example.libraryavailabilityinformationsystem.models.*
 import com.example.libraryavailabilityinformationsystem.ui.*
 import com.example.libraryavailabilityinformationsystem.ui.theme.LibraryAvailabilityInformationSystemTheme
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LaisRepository.initRoomDatabase(applicationContext)
         enableEdgeToEdge()
         setContent {
             LibraryAvailabilityInformationSystemTheme(dynamicColor = false) {
@@ -61,9 +61,19 @@ fun LaisApp() {
     var selectedBookId by rememberSaveable { mutableStateOf<Int?>(null) }
     var editingBook by remember { mutableStateOf<Book?>(null) }
     var showAddBookModal by rememberSaveable { mutableStateOf(false) }
+    var bannerTitle by remember { mutableStateOf<String?>(null) }
+    var bannerMessage by remember { mutableStateOf<String?>(null) }
 
     val savedIds = remember { mutableStateListOf(3) }
     val alertIds = remember { mutableStateListOf<Int>() }
+
+    fun signOutUser() {
+        selectedBookId = null
+        editingBook = null
+        showAddBookModal = false
+        tab = Tab.Home
+        flow = Flow.Login
+    }
 
     fun toggleInList(list: MutableList<Int>, id: Int) {
         if (!list.remove(id)) list.add(id)
@@ -158,18 +168,16 @@ fun LaisApp() {
                     onBack = { flow = Flow.Welcome },
                     onOpenAccount = { tab = Tab.Account },
                     onSwitchRole = {
-                        val nextRole = when (currentUser.role) {
-                            UserRole.Student -> UserRole.Librarian
-                            UserRole.Librarian -> UserRole.Admin
-                            UserRole.Admin -> UserRole.Student
-                        }
-                        currentUser = usersList.firstOrNull { it.role == nextRole } ?: currentUser.copy(role = nextRole)
-                        tab = when (nextRole) {
-                            UserRole.Student -> Tab.Home
-                            UserRole.Librarian -> Tab.Catalog
-                            UserRole.Admin -> Tab.Dashboard
-                        }
+                        bannerTitle = "Book Available Alert"
+                        bannerMessage = "Clean Code is now available for borrowing at Main Library!"
                     }
+                )
+
+                NotificationBanner(
+                    title = bannerTitle ?: "",
+                    message = bannerMessage ?: "",
+                    isVisible = bannerTitle != null,
+                    onDismiss = { bannerTitle = null }
                 )
 
                 Box(Modifier.weight(1f)) {
@@ -242,7 +250,7 @@ fun LaisApp() {
                                         if (idx != -1) usersList[idx] = updated
                                         LaisRepository.saveUserToFirestore(updated)
                                     },
-                                    onSignOut = { flow = Flow.Login }
+                                    onSignOut = { signOutUser() }
                                 )
 
                                 else -> HomeScreen(
@@ -318,7 +326,7 @@ fun LaisApp() {
                                         if (idx != -1) usersList[idx] = updated
                                         LaisRepository.saveUserToFirestore(updated)
                                     },
-                                    onSignOut = { flow = Flow.Login }
+                                    onSignOut = { signOutUser() }
                                 )
 
                                 else -> LibrarianCatalogScreen(
@@ -398,7 +406,7 @@ fun LaisApp() {
                                         if (idx != -1) usersList[idx] = updated
                                         LaisRepository.saveUserToFirestore(updated)
                                     },
-                                    onSignOut = { flow = Flow.Login }
+                                    onSignOut = { signOutUser() }
                                 )
 
                                 else -> AdminDashboardScreen(

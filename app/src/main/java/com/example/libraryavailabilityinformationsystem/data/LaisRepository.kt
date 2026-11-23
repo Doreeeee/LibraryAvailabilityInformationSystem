@@ -1,15 +1,31 @@
 package com.example.libraryavailabilityinformationsystem.data
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.compose.ui.graphics.Color
+import com.example.libraryavailabilityinformationsystem.db.*
 import com.example.libraryavailabilityinformationsystem.models.*
+import com.example.libraryavailabilityinformationsystem.sync.SyncWorker
+import com.example.libraryavailabilityinformationsystem.util.PasswordHasher
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 object LaisRepository {
     private const val TAG = "LaisRepository"
+
+    @Volatile
+    private var roomDb: LaisDatabase? = null
+
+    @Volatile
+    private var appContext: Context? = null
 
     // Safe Firebase Accessors
     private val auth: FirebaseAuth? by lazy {
@@ -17,6 +33,70 @@ object LaisRepository {
     }
     private val db: FirebaseFirestore? by lazy {
         try { FirebaseFirestore.getInstance() } catch (e: Exception) { null }
+    }
+
+    fun initRoomDatabase(context: Context) {
+        appContext = context.applicationContext
+        if (roomDb == null) {
+            synchronized(this) {
+                if (roomDb == null) {
+                    val instance = LaisDatabase.getInstance(context)
+                    roomDb = instance
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val existingBooks = instance.bookDao().getAllBooks()
+                            if (existingBooks.isEmpty()) {
+                                instance.bookDao().insertBooks(initialBooks.map { it.toEntity() })
+                            }
+                            val existingUsers = instance.userDao().getAllUsers()
+                            if (existingUsers.isEmpty()) {
+                                instance.userDao().insertUsers(initialUsers.map { it.toEntity() })
+                            }
+                            val existingHistory = instance.borrowHistoryDao().getAllHistory()
+                            if (existingHistory.isEmpty()) {
+                                instance.borrowHistoryDao().insertHistory(initialBorrowHistory.map { it.toEntity() })
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error populating Room database: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun getBooksFromRoom(): List<Book>? {
+        return roomDb?.bookDao()?.getAllBooks()?.map { it.toModel() }
+    }
+
+    fun getUsersFromRoom(): List<UserAccount>? {
+        return roomDb?.userDao()?.getAllUsers()?.map { it.toModel() }
+    }
+
+    fun searchBooksOffline(query: String, onResult: (List<Book>) -> Unit) {
+        val instance = roomDb
+        if (instance != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val q = query.trim()
+                    val entities = if (q.isEmpty()) instance.bookDao().getAllBooks() else instance.bookDao().searchBooks(q)
+                    val books = entities.map { it.toModel() }
+                    withContext(Dispatchers.Main) {
+                        onResult(if (books.isNotEmpty()) books else initialBooks)
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        onResult(initialBooks)
+                    }
+                }
+            }
+        } else {
+            val q = query.trim().lowercase()
+            val filtered = initialBooks.filter {
+                q.isEmpty() || it.title.lowercase().contains(q) || it.author.lowercase().contains(q)
+            }
+            onResult(filtered)
+        }
     }
 
     val initialUsers = listOf(
@@ -157,11 +237,28 @@ object LaisRepository {
     val activityLogsList = mutableListOf<ActivityLog>()
 
     fun observeBooksFromFirestore(onBooksUpdated: (List<Book>) -> Unit) {
-        val firestoreDb = db ?: return onBooksUpdated(initialBooks)
+        val firestoreDb = db
+        if (firestoreDb == null) {
+            val instance = roomDb
+            if (instance != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val books = instance.bookDao().getAllBooks().map { it.toModel() }
+                        withContext(Dispatchers.Main) {
+                            onBooksUpdated(if (books.isNotEmpty()) books else initialBooks)
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) { onBooksUpdated(initialBooks) }
+                    }
+                }
+            } else {
+                onBooksUpdated(initialBooks)
+            }
+            return
+        }
 
         firestoreDb.collection("books").addSnapshotListener { snapshot, error ->
             if (error != null || snapshot == null) {
-                Log.e(TAG, "Error fetching books from Firestore: ${error?.message}")
                 onBooksUpdated(initialBooks)
                 return@addSnapshotListener
             }
@@ -171,13 +268,16 @@ object LaisRepository {
                 onBooksUpdated(initialBooks)
             } else {
                 val parsedBooks = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        parseBookFromDoc(doc)
-                    } catch (e: Exception) {
-                        null
-                    }
+                    try { parseBookFromDoc(doc) } catch (e: Exception) { null }
                 }
                 if (parsedBooks.isNotEmpty()) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            roomDb?.bookDao()?.insertBooks(parsedBooks.map { it.toEntity("SYNCED") })
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error caching Firestore books to Room: ${e.message}")
+                        }
+                    }
                     onBooksUpdated(parsedBooks)
                 } else {
                     onBooksUpdated(initialBooks)
@@ -261,7 +361,26 @@ object LaisRepository {
     }
 
     fun observeUsersFromFirestore(onUsersUpdated: (List<UserAccount>) -> Unit) {
-        val firestoreDb = db ?: return onUsersUpdated(initialUsers)
+        val firestoreDb = db
+        if (firestoreDb == null) {
+            val instance = roomDb
+            if (instance != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val users = instance.userDao().getAllUsers().map { it.toModel() }
+                        withContext(Dispatchers.Main) {
+                            val allUsers = (users + registeredUsers + initialUsers).distinctBy { it.id }
+                            onUsersUpdated(allUsers)
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) { onUsersUpdated(initialUsers + registeredUsers) }
+                    }
+                }
+            } else {
+                onUsersUpdated(initialUsers + registeredUsers)
+            }
+            return
+        }
 
         firestoreDb.collection("users").addSnapshotListener { snapshot, error ->
             if (error != null || snapshot == null) {
@@ -270,17 +389,19 @@ object LaisRepository {
             }
 
             if (snapshot.isEmpty) {
-                seedInitialUsersToFirestore()
                 onUsersUpdated(initialUsers)
             } else {
                 val parsedUsers = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        parseUserFromDoc(doc)
-                    } catch (e: Exception) {
-                        null
-                    }
+                    try { parseUserFromDoc(doc) } catch (e: Exception) { null }
                 }
                 if (parsedUsers.isNotEmpty()) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            roomDb?.userDao()?.insertUsers(parsedUsers.map { it.toEntity("SYNCED") })
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error caching users to Room: ${e.message}")
+                        }
+                    }
                     onUsersUpdated(parsedUsers)
                 } else {
                     onUsersUpdated(initialUsers)
@@ -320,28 +441,6 @@ object LaisRepository {
         )
     }
 
-    private fun seedInitialUsersToFirestore() {
-        val firestoreDb = db ?: return
-        initialUsers.forEach { user ->
-            val userMap = hashMapOf(
-                "id" to user.id,
-                "userId" to user.id,
-                "uid" to user.id.toString(),
-                "name" to user.name,
-                "fullName" to user.name,
-                "email" to user.email,
-                "username" to user.username,
-                "password" to user.password,
-                "role" to user.role.name.lowercase(),
-                "studentId" to user.studentId,
-                "department" to user.department,
-                "isActive" to user.isActive,
-                "createdAt" to user.createdAt
-            )
-            firestoreDb.collection("users").document(user.id.toString()).set(userMap, SetOptions.merge())
-        }
-    }
-
     fun authenticateWithFirebase(
         usernameInput: String,
         passwordInput: String,
@@ -351,118 +450,64 @@ object LaisRepository {
         val input = usernameInput.trim()
         val pass = passwordInput.trim()
 
-        val firestoreDb = db
-        val firebaseAuth = auth
-
-        val allLocalUsers = activeUsersList + registeredUsers + initialUsers
-        val localMatch = allLocalUsers.find { u ->
-            (u.email.equals(input, ignoreCase = true) || u.username.equals(input, ignoreCase = true)) &&
-            (u.password.isEmpty() || u.password == pass)
-        }
-
-        if (localMatch != null) {
-            if (!localMatch.isActive) {
-                onResult(null, "Your account has been deactivated by administrator.")
-            } else {
-                onResult(localMatch, null)
-            }
-            if (firebaseAuth != null) {
+        val instance = roomDb
+        if (instance != null) {
+            CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val authEmail = if (input.contains("@")) input else localMatch.email
-                    firebaseAuth.signInWithEmailAndPassword(authEmail, pass)
+                    val userEntity = instance.userDao().getUserByEmailOrUsername(input, input)
+                    if (userEntity != null) {
+                        val isPassValid = PasswordHasher.verifyPassword(pass, userEntity.passwordHash)
+                        withContext(Dispatchers.Main) {
+                            if (!userEntity.isActive) {
+                                onResult(null, "Your account has been deactivated by administrator.")
+                            } else if (isPassValid) {
+                                onResult(userEntity.toModel(), null)
+                            } else {
+                                onResult(null, "Invalid credentials")
+                            }
+                        }
+                        return@launch
+                    }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Auth sync notice: ${e.message}")
+                    Log.e(TAG, "Error performing Room local authentication: ${e.message}")
+                }
+
+                // Fallback to in-memory list match
+                val allLocalUsers = activeUsersList + registeredUsers + initialUsers
+                val localMatch = allLocalUsers.find { u ->
+                    (u.email.equals(input, ignoreCase = true) || u.username.equals(input, ignoreCase = true)) &&
+                    (u.password.isEmpty() || PasswordHasher.verifyPassword(pass, u.password))
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (localMatch != null) {
+                        if (!localMatch.isActive) {
+                            onResult(null, "Your account has been deactivated by administrator.")
+                        } else {
+                            onResult(localMatch, null)
+                        }
+                    } else {
+                        onResult(null, "Invalid credentials")
+                    }
                 }
             }
-            return
-        }
-
-        val authEmail = if (input.contains("@")) input else "$input@univ.edu"
-
-        if (firebaseAuth == null || firestoreDb == null) {
-            onResult(null, "Invalid credentials")
-            return
-        }
-
-        firebaseAuth.signInWithEmailAndPassword(authEmail, pass)
-            .addOnSuccessListener { authResult ->
-                val uid = authResult.user?.uid ?: ""
-                Log.d(TAG, "Firebase Auth sign-in successful for UID: $uid. Querying Firestore users/$uid...")
-
-                firestoreDb.collection("users").document(uid).get()
-                    .addOnSuccessListener { doc ->
-                        if (doc != null && doc.exists()) {
-                            val user = parseUserFromDoc(doc)
-                            if (!user.isActive) {
-                                onResult(null, "Your account has been deactivated by administrator.")
-                            } else {
-                                registeredUsers.add(user)
-                                onResult(user, null)
-                            }
-                        } else {
-                            firestoreDb.collection("users")
-                                .whereEqualTo("email", authEmail)
-                                .get()
-                                .addOnSuccessListener { snapshot ->
-                                    val matchedDoc = snapshot?.documents?.firstOrNull()
-                                    if (matchedDoc != null) {
-                                        val u = parseUserFromDoc(matchedDoc)
-                                        if (!u.isActive) {
-                                            onResult(null, "Your account has been deactivated by administrator.")
-                                        } else {
-                                            registeredUsers.add(u)
-                                            onResult(u, null)
-                                        }
-                                    } else {
-                                        val fallbackUser = UserAccount(
-                                            id = uid.hashCode(),
-                                            name = authEmail.substringBefore("@").replaceFirstChar { it.uppercase() },
-                                            email = authEmail,
-                                            username = authEmail.substringBefore("@"),
-                                            password = pass,
-                                            role = UserRole.Student,
-                                            uid = uid
-                                        )
-                                        registeredUsers.add(fallbackUser)
-                                        onResult(fallbackUser, null)
-                                    }
-                                }
-                                .addOnFailureListener {
-                                    onResult(null, "Invalid credentials")
-                                }
-                        }
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "Firestore lookup failed for users/$uid: ${e.localizedMessage}", e)
-                        onResult(null, "Invalid credentials")
-                    }
+        } else {
+            val allLocalUsers = activeUsersList + registeredUsers + initialUsers
+            val localMatch = allLocalUsers.find { u ->
+                (u.email.equals(input, ignoreCase = true) || u.username.equals(input, ignoreCase = true)) &&
+                (u.password.isEmpty() || PasswordHasher.verifyPassword(pass, u.password))
             }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Firebase Auth sign-in failed: ${e.localizedMessage}", e)
-                firestoreDb.collection("users")
-                    .whereEqualTo("email", authEmail)
-                    .get()
-                    .addOnSuccessListener { snapshot ->
-                        val matchedDoc = snapshot?.documents?.find { d ->
-                            val uPass = d.getString("password") ?: ""
-                            uPass.isEmpty() || uPass == pass
-                        }
-                        if (matchedDoc != null) {
-                            val user = parseUserFromDoc(matchedDoc)
-                            if (!user.isActive) {
-                                onResult(null, "Your account has been deactivated by administrator.")
-                            } else {
-                                registeredUsers.add(user)
-                                onResult(user, null)
-                            }
-                        } else {
-                            onResult(null, "Invalid credentials")
-                        }
-                    }
-                    .addOnFailureListener {
-                        onResult(null, "Invalid credentials")
-                    }
+
+            if (localMatch != null) {
+                if (!localMatch.isActive) {
+                    onResult(null, "Your account has been deactivated by administrator.")
+                } else {
+                    onResult(localMatch, null)
+                }
+            } else {
+                onResult(null, "Invalid credentials")
             }
+        }
     }
 
     fun registerStudentWithFirebase(
@@ -472,128 +517,69 @@ object LaisRepository {
         role: UserRole = UserRole.Student,
         onResult: (UserAccount?, String?) -> Unit
     ) {
-        val firestoreDb = db
-        val firebaseAuth = auth
-
         val cleanEmail = email.trim()
         val cleanPass = password.trim()
         val fallbackId = Math.abs(cleanEmail.hashCode())
         val generatedUid = "user_$fallbackId"
+        val pwdHash = PasswordHasher.hashPassword(cleanPass)
 
         val localUser = UserAccount(
             id = fallbackId,
             name = name,
             email = cleanEmail,
             username = cleanEmail.substringBefore("@"),
-            password = cleanPass,
+            password = pwdHash,
             role = role,
             uid = generatedUid
         )
 
-        // Save profile to Firestore and memory list immediately
         saveUserToFirestore(localUser)
-        registeredUsers.add(localUser)
-
-        if (firebaseAuth == null || firestoreDb == null) {
-            Log.w(TAG, "Firebase services not initialized, registering locally.")
-            onResult(localUser, null)
-            return
-        }
-
-        Log.d(TAG, "Creating Firebase Auth user for $cleanEmail...")
-
-        firebaseAuth.createUserWithEmailAndPassword(cleanEmail, cleanPass)
-            .addOnSuccessListener { authResult ->
-                val firebaseUser = authResult.user
-                val uid = firebaseUser?.uid ?: generatedUid
-
-                Log.d(TAG, "Firebase Auth account created successfully. UID: $uid")
-
-                val now = System.currentTimeMillis()
-                val userData = hashMapOf(
-                    "uid" to uid,
-                    "name" to name,
-                    "fullName" to name,
-                    "email" to cleanEmail,
-                    "phoneNumber" to "+1 (555) 019-2834",
-                    "studentId" to "STU-2025-${uid.take(4)}",
-                    "role" to "student",
-                    "isActive" to true,
-                    "createdAt" to now,
-                    "updatedAt" to now
-                )
-
-                Log.d(TAG, "Writing Firestore document to path: users/$uid...")
-
-                firestoreDb.collection("users")
-                    .document(uid)
-                    .set(userData, SetOptions.merge())
-                    .addOnSuccessListener {
-                        Log.d(TAG, "Firestore document users/$uid created successfully!")
-                        val registeredUser = localUser.copy(uid = uid)
-                        registeredUsers.add(registeredUser)
-                        onResult(registeredUser, null)
-                    }
-                    .addOnFailureListener { e ->
-                        Log.w(TAG, "Firestore write error for users/$uid (${e.message}), completing registration.")
-                        onResult(localUser, null)
-                    }
-            }
-            .addOnFailureListener { e ->
-                Log.w(TAG, "Firebase Auth registration notice (${e.localizedMessage}), proceeding with created user profile.")
-                onResult(localUser, null)
-            }
+        onResult(localUser, null)
     }
 
     fun saveBookToFirestore(book: Book, onComplete: ((Boolean) -> Unit)? = null) {
-        val firestoreDb = db
-        if (firestoreDb == null) {
-            onComplete?.invoke(true)
-            return
+        val now = System.currentTimeMillis()
+        val isNew = (book.id == 0)
+        val finalBookId = if (isNew) Math.abs(book.title.hashCode()) else book.id
+        val bookToSave = book.copy(id = finalBookId, updatedAt = now)
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val dbInstance = roomDb
+                if (dbInstance != null) {
+                    dbInstance.bookDao().insertBook(bookToSave.toEntity("PENDING"))
+                    val syncItem = PendingSyncEntity(
+                        syncId = "sync_${now}_${finalBookId}",
+                        entityType = "BOOK",
+                        entityId = finalBookId.toString(),
+                        operation = if (isNew) "INSERT" else "UPDATE",
+                        timestamp = now,
+                        status = "PENDING"
+                    )
+                    dbInstance.pendingSyncDao().insertPendingSync(syncItem)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving book to Room database: ${e.message}")
+            }
         }
 
-        val now = System.currentTimeMillis()
-        val bookMap = hashMapOf(
-            "id" to book.id,
-            "bookId" to book.id,
-            "title" to book.title,
-            "author" to book.author,
-            "year" to book.year,
-            "category" to book.category,
-            "status" to book.status.name,
-            "copies" to book.copies,
-            "availableCopies" to book.copies,
-            "total" to book.total,
-            "totalCopies" to book.total,
-            "numberOfCopies" to book.total,
-            "returnDate" to book.returnDate,
-            "expectedReturnDate" to book.returnDate,
-            "isOutdated" to book.isOutdated,
-            "isbn" to book.isbn,
-            "description" to book.description,
-            "createdBy" to book.createdBy,
-            "createdAt" to book.createdAt,
-            "updatedAt" to now,
-            "isActive" to book.isActive
-        )
-
-        firestoreDb.collection("books").document(book.id.toString())
-            .set(bookMap, SetOptions.merge())
-            .addOnSuccessListener {
-                logActivity(
-                    performedBy = book.createdBy,
-                    performedByRole = "librarian",
-                    action = if (book.id == 0) "ADD_BOOK" else "UPDATE_BOOK",
-                    targetBookId = book.id.toString(),
-                    description = "Librarian updated book record for '${book.title}'"
-                )
-                // Check pending book notifications if book became Available
-                if (book.status == Status.Available) {
-                    processPendingBookNotifications(book.id, book.title)
-                }
-                onComplete?.invoke(true)
+        // Schedule WorkManager network sync
+        appContext?.let { ctx ->
+            try {
+                SyncWorker.scheduleNetworkSync(ctx)
+            } catch (e: Exception) {
+                Log.w(TAG, "WorkManager sync schedule warning: ${e.message}")
             }
-            .addOnFailureListener { onComplete?.invoke(false) }
+        }
+
+        logActivity(
+            performedBy = bookToSave.createdBy,
+            performedByRole = "librarian",
+            action = if (isNew) "ADD_BOOK" else "UPDATE_BOOK",
+            targetBookId = finalBookId.toString(),
+            description = "Librarian updated book record for '${bookToSave.title}'"
+        )
+        onComplete?.invoke(true)
     }
 
     fun requestBookNotification(
@@ -602,58 +588,19 @@ object LaisRepository {
         bookTitle: String,
         onResult: (Boolean, String?) -> Unit
     ) {
-        val firestoreDb = db
-        if (firestoreDb == null) {
+        val exists = notificationRequests.any { it.studentUid == studentUid && it.bookId == bookId }
+        if (exists) {
+            onResult(false, "Notification alert is already active for this book.")
+        } else {
+            val notif = BookNotification(
+                notificationId = "notif_${System.currentTimeMillis()}",
+                studentUid = studentUid,
+                bookId = bookId,
+                bookTitle = bookTitle
+            )
+            notificationRequests.add(notif)
             onResult(true, null)
-            return
         }
-
-        // Query bookNotifications to prevent duplicate request
-        firestoreDb.collection("bookNotifications")
-            .whereEqualTo("studentUid", studentUid)
-            .whereEqualTo("bookId", bookId)
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (snapshot != null && !snapshot.isEmpty) {
-                    onResult(false, "Notification alert is already active for this book.")
-                } else {
-                    val notifId = "notif_${System.currentTimeMillis()}"
-                    val notifData = hashMapOf(
-                        "notificationId" to notifId,
-                        "studentUid" to studentUid,
-                        "bookId" to bookId,
-                        "bookTitle" to bookTitle,
-                        "requestedAt" to System.currentTimeMillis(),
-                        "notified" to false,
-                        "notificationSentAt" to null
-                    )
-                    firestoreDb.collection("bookNotifications").document(notifId)
-                        .set(notifData)
-                        .addOnSuccessListener { onResult(true, null) }
-                        .addOnFailureListener { e -> onResult(false, e.localizedMessage) }
-                }
-            }
-            .addOnFailureListener { e ->
-                onResult(false, e.localizedMessage)
-            }
-    }
-
-    private fun processPendingBookNotifications(bookId: Int, bookTitle: String) {
-        val firestoreDb = db ?: return
-        firestoreDb.collection("bookNotifications")
-            .whereEqualTo("bookId", bookId)
-            .whereEqualTo("notified", false)
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (snapshot != null) {
-                    snapshot.documents.forEach { doc ->
-                        doc.reference.update(
-                            "notified", true,
-                            "notificationSentAt", System.currentTimeMillis()
-                        )
-                    }
-                }
-            }
     }
 
     fun logActivity(
@@ -662,68 +609,72 @@ object LaisRepository {
         action: String,
         targetBookId: String? = null,
         targetUserId: String? = null,
-        description: String
+        description: String = ""
     ) {
-        val firestoreDb = db ?: return
         val logId = "log_${System.currentTimeMillis()}"
-        val logMap = hashMapOf(
-            "logId" to logId,
-            "performedBy" to performedBy,
-            "performedByRole" to performedByRole,
-            "action" to action,
-            "targetBookId" to targetBookId,
-            "targetUserId" to targetUserId,
-            "description" to description,
-            "timestamp" to System.currentTimeMillis()
+        val logItem = ActivityLog(
+            logId = logId,
+            performedBy = performedBy,
+            performedByRole = performedByRole,
+            action = action,
+            targetUserId = targetUserId,
+            targetBookId = targetBookId,
+            description = description
         )
-        firestoreDb.collection("activityLogs").document(logId).set(logMap, SetOptions.merge())
+        activityLogsList.add(logItem)
     }
 
     fun saveUserToFirestore(user: UserAccount, onComplete: ((Boolean) -> Unit)? = null) {
-        val firestoreDb = db
-        if (firestoreDb == null) {
-            onComplete?.invoke(true)
-            return
+        val now = System.currentTimeMillis()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val dbInstance = roomDb
+                if (dbInstance != null) {
+                    val userEntity = user.toEntity("PENDING")
+                    dbInstance.userDao().insertUser(userEntity)
+                    val syncItem = PendingSyncEntity(
+                        syncId = "sync_${now}_user_${user.id}",
+                        entityType = "USER",
+                        entityId = user.id.toString(),
+                        operation = "INSERT",
+                        timestamp = now,
+                        status = "PENDING"
+                    )
+                    dbInstance.pendingSyncDao().insertPendingSync(syncItem)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving user to Room: ${e.message}")
+            }
         }
 
-        val docId = if (!user.uid.isNullOrEmpty()) user.uid!! else if (user.email.isNotBlank()) user.email.replace(".", "_") else user.id.toString()
-        val userMap = hashMapOf(
-            "uid" to docId,
-            "id" to user.id,
-            "userId" to user.id,
-            "name" to user.name,
-            "fullName" to user.name,
-            "email" to user.email,
-            "username" to user.username,
-            "role" to user.role.name.lowercase(),
-            "studentId" to user.studentId,
-            "department" to user.department,
-            "isActive" to user.isActive,
-            "createdAt" to user.createdAt,
-            "updatedAt" to System.currentTimeMillis()
-        )
+        // Schedule WorkManager network sync
+        appContext?.let { ctx ->
+            try {
+                SyncWorker.scheduleNetworkSync(ctx)
+            } catch (e: Exception) {
+                Log.w(TAG, "WorkManager sync schedule warning: ${e.message}")
+            }
+        }
 
-        firestoreDb.collection("users").document(docId)
-            .set(userMap, SetOptions.merge())
-            .addOnSuccessListener {
-                onComplete?.invoke(true)
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Failed to save user to Firestore: ${e.message}")
-                onComplete?.invoke(false)
-            }
+        val idx = registeredUsers.indexOfFirst { it.id == user.id || (user.uid != null && it.uid == user.uid) }
+        if (idx != -1) {
+            registeredUsers[idx] = user
+        } else {
+            registeredUsers.add(user)
+        }
+        onComplete?.invoke(true)
     }
 
     fun deleteUserFromFirestore(userId: Int, onComplete: ((Boolean) -> Unit)? = null) {
-        val firestoreDb = db
-        if (firestoreDb == null) {
-            onComplete?.invoke(true)
-            return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                roomDb?.userDao()?.deleteUser(userId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error deleting user from Room: ${e.message}")
+            }
         }
 
-        firestoreDb.collection("users").document(userId.toString())
-            .delete()
-            .addOnSuccessListener { onComplete?.invoke(true) }
-            .addOnFailureListener { onComplete?.invoke(false) }
+        registeredUsers.removeAll { it.id == userId }
+        onComplete?.invoke(true)
     }
 }

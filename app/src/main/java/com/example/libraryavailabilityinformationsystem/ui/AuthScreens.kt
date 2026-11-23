@@ -434,18 +434,20 @@ fun LoginRegisterScreen(
                         val pass = regPassword.ifBlank { defaultPass }
                         val email = "${uname.lowercase()}@univ.edu"
                         val name = if (regRole == UserRole.Librarian) "Librarian Staff ($uname)" else "Administrator ($uname)"
-                        val newUser = UserAccount(
-                            id = Math.abs(email.hashCode()),
+
+                        LaisRepository.registerStudentWithFirebase(
                             name = name,
                             email = email,
-                            username = uname,
                             password = pass,
                             role = regRole
-                        )
-                        LaisRepository.saveUserToFirestore(newUser)
-                        LaisRepository.registeredUsers.add(newUser)
-                        onRegisterUser(newUser)
-                        onAuthSuccess(newUser)
+                        ) { registeredUser, err ->
+                            if (registeredUser != null) {
+                                onRegisterUser(registeredUser)
+                                onAuthSuccess(registeredUser)
+                            } else {
+                                errorMessage = err ?: "Registration failed"
+                            }
+                        }
                     }
                 },
                 enabled = if (regRole == UserRole.Student) {
